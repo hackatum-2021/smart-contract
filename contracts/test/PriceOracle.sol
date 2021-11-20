@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity 0.7.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v3.1.0-solc-0.7/contracts/access/Ownable.sol";
 import "../interfaces/IPriceOracle.sol";
 
 contract PriceOracleTest is IPriceOracle, Ownable {
