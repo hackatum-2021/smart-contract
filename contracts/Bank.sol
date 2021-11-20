@@ -14,6 +14,7 @@ contract Bank is IBank {
 
     mapping(address => Account) public ETHBankAccount;
     mapping(address => Account) public HAKBankAccount;
+    mapping(address => Account) public ETHBorrowed;
 
     constructor(address _priceOracle, address _hakToken) {
         hakToken = _hakToken;
@@ -28,11 +29,14 @@ contract Bank is IBank {
             // TODO add requires for tokens
             if(token == ethToken){
                 require(msg.value == amount);
-                //require(IERC20(ethToken).transferFrom(msg.sender, address(this), amount), "Bank not allowed to transfer funds");
+                ETHBankAccount[msg.sender].interest = DSMath.add(ETHBankAccount[msg.sender].interest, calculateDepositInterest(token));
                 ETHBankAccount[msg.sender].deposit = DSMath.add(ETHBankAccount[msg.sender].deposit, amount);
+                ETHBankAccount[msg.sender].lastInterestBlock = block.number;
             } else if(token == hakToken) {
-                require(IERC20(hakToken).transferFrom(msg.sender, address(this), amount), "Bank not allowed to transfer funds");
+                require(ERC20(hakToken).transferFrom(msg.sender, address(this), amount), "Bank not allowed to transfer funds");
+                HAKBankAccount[msg.sender].interest = DSMath.add(HAKBankAccount[msg.sender].interest, calculateDepositInterest(token));
                 HAKBankAccount[msg.sender].deposit = DSMath.add(HAKBankAccount[msg.sender].deposit, amount);
+                HAKBankAccount[msg.sender].lastInterestBlock = block.number;
             }
             emit Deposit(msg.sender, token, amount);
             return true;
@@ -41,7 +45,39 @@ contract Bank is IBank {
     function withdraw(address token, uint256 amount)
         external
         override
-        returns (uint256) {}
+        returns (uint256) {
+            require(amount >= 0, "Too small amount!");
+            if(token == ethToken){
+                require(address(this).balance >= amount);
+                ETHBankAccount[msg.sender].interest = DSMath.add(ETHBankAccount[msg.sender].interest, calculateDepositInterest(token));
+                require(DSMath.add(ETHBankAccount[msg.sender].deposit, ETHBankAccount[msg.sender].interest) >= amount, "Not enough funds in account");
+                if(ETHBankAccount[msg.sender].interest >= amount){
+                    ETHBankAccount[msg.sender].interest = DSMath.sub(ETHBankAccount[msg.sender].interest, amount);
+                } else {
+                    uint256 tempAmount = amount;
+                    tempAmount = DSMath.sub(tempAmount, ETHBankAccount[msg.sender].interest);
+                    ETHBankAccount[msg.sender].interest = 0;
+                    ETHBankAccount[msg.sender].deposit = DSMath.sub(ETHBankAccount[msg.sender].deposit, tempAmount);
+                }
+                (bool sent, bytes memory data) = msg.sender.call{value: amount}("");
+                require(sent, "Failed to send Ether");
+                
+            } else if (token == hakToken) {
+                require(ERC20(hakToken).balanceOf(address(this)) >= amount);
+                HAKBankAccount[msg.sender].interest = DSMath.add(HAKBankAccount[msg.sender].interest, calculateDepositInterest(token));
+                require(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) >= amount, "Not enough funds in account");
+                if(HAKBankAccount[msg.sender].interest >= amount){
+                    HAKBankAccount[msg.sender].interest = DSMath.sub(HAKBankAccount[msg.sender].interest, amount);
+                } else {
+                    uint256 tempAmount = amount;
+                    tempAmount = DSMath.sub(tempAmount, HAKBankAccount[msg.sender].interest);
+                    HAKBankAccount[msg.sender].interest = 0;
+                    HAKBankAccount[msg.sender].deposit = DSMath.sub(HAKBankAccount[msg.sender].deposit, tempAmount);
+                }
+                require(ERC20(hakToken).transferFrom(address(this), msg.sender, amount));
+            }
+            emit Withdraw(msg.sender, token, amount);
+        }
 
     function borrow(address token, uint256 amount)
         external
@@ -71,4 +107,16 @@ contract Bank is IBank {
         public
         override
         returns (uint256) {}
+        
+    function calculateDepositInterest(address token) view private returns (uint256) {
+        if(token == ethToken){
+            return calculateInterest(3, ETHBankAccount[msg.sender].lastInterestBlock, ETHBankAccount[msg.sender].deposit);
+        } else if (token == hakToken) {
+            return calculateInterest(3, HAKBankAccount[msg.sender].lastInterestBlock, HAKBankAccount[msg.sender].deposit);
+        }
+    }
+    
+    function calculateInterest(uint256 interestRate, uint256 lastInterestBlock, uint256 amount) view private returns (uint256) {
+        return DSMath.wdiv(DSMath.wmul(DSMath.mul(interestRate, DSMath.sub(block.number, lastInterestBlock)), amount), 10000);
+    }
 }
