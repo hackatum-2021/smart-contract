@@ -217,9 +217,9 @@ contract Bank is IBank {
         override
         returns (uint256) {
             if(token == ethToken){
-                return DSMath.add(ETHBankAccount[msg.sender].deposit, ETHBankAccount[msg.sender].interest);
+                return DSMath.add(ETHBankAccount[msg.sender].deposit, ETHBankAccount[msg.sender].interest + calculateDepositInterest(token));
             } else if(token == hakToken) {
-                return DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest);
+                return DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest + calculateDepositInterest(token));
             } else {
                 require(false, "Token not recognized");
             }
