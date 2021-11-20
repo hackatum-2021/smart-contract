@@ -112,7 +112,15 @@ contract Bank is IBank {
         view
         public
         override
-        returns (uint256) {}
+        returns (uint256) {
+            if(token == ethToken){
+                return DSMath.add(ETHBankAccount[msg.sender].deposit, ETHBankAccount[msg.sender].interest);
+            } else if(token == hakToken) {
+                return DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest);
+            } else {
+                require(false, "Token not recognized");
+            }
+        }
         
     function calculateDepositInterest(address token) view private returns (uint256) {
         if(token == ethToken){
