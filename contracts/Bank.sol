@@ -91,21 +91,30 @@ contract Bank is IBank {
         override
         returns (uint256) {
             require(token == ethToken, "You can only borrow ETH");
+            require(calcBorrowedInterest(msg.sender), "Could not calculate interest on debt");
             if(amount==0){
                 // calculate maximum amount
-                uint256 max_amount = (HAKBankAccount[msg.sender].deposit + HAKBankAccount[msg.sender].interest)*10000 / 15000 - borrowed[msg.sender] - owedInterest[msg.sender];
+                uint256 totalHakTokens = DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest);
+                uint256 max_amount = DSMath.wmul(IPriceOracle(priceOracle).getVirtualPrice(hakToken), DSMath.wdiv(DSMath.mul(totalHakTokens, 10000), 15000));
+                amount = DSMath.sub(DSMath.sub(max_amount, ETHBorrowed[msg.sender].deposit), ETHBorrowed[msg.sender].interest);
                 //uint256 max_amount = DSMath.sub(DSMath.sub(DSMath.wdiv(DSMath.mul(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) , 10000), 15000), borrowed[msg.sender]), owedInterest[msg.sender]);
                 
                 // update borrowed amount
-                borrowed[msg.sender] = DSMath.add(borrowed[msg.sender], max_amount);
+                ETHBorrowed[msg.sender].deposit = DSMath.add(ETHBorrowed[msg.sender].deposit, amount);
             } else {
                 // calculate new collateral ratio
-                uint256 tentative_coll_ratio = (HAKBankAccount[msg.sender].deposit + HAKBankAccount[msg.sender].interest)*10000 / (borrowed[msg.sender] + owedInterest[msg.sender] + amount);
+                uint256 totalHakTokens = DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest);
+                uint256 totalBorrowed = DSMath.add(ETHBorrowed[msg.sender].deposit, DSMath.add(ETHBorrowed[msg.sender].interest, amount));
+                uint256 tentative_coll_ratio = DSMath.wdiv(DSMath.wmul(IPriceOracle(priceOracle).getVirtualPrice(hakToken), DSMath.mul(totalHakTokens, 10000)), totalBorrowed);
                 require(tentative_coll_ratio >= 15000, "you don't have enough deposit");
                 
                 // update borrowed amount
-                borrowed[msg.sender] = DSMath.add(borrowed[msg.sender], amount);
+                ETHBorrowed[msg.sender].deposit = DSMath.add(ETHBorrowed[msg.sender].deposit, amount);
             }
+            require(address(this).balance >= amount, "Bank doesn't have enough funds");
+            
+            (bool sent, bytes memory data) = msg.sender.call{value: amount}("");
+            require(sent, "Failed to send Ether");
             
             uint256 new_coll_ratio = getCollateralRatio(token, msg.sender);
             emit Borrow(msg.sender, token, amount, new_coll_ratio);
@@ -117,18 +126,51 @@ contract Bank is IBank {
         payable
         external
         override
-        returns (uint256) {}
+        returns (uint256) {
+            require(calcBorrowedInterest(msg.sender), "Could not calculate interest on debt");
+            //TODO: maybe this is not required, case in which we need to send overpayments back
+            require(ETHBorrowed[msg.sender].deposit + ETHBorrowed[msg.sender].interest >= msg.value);
+            require(amount == msg.value);
+            
+            repayHelper(token, msg.sender, msg.sender, amount);
+        }
 
     function liquidate(address token, address account)
         payable
         external
         override
         returns (bool) {
-            require(getCollateralRatio(hakToken, account) >= 15000, "account is not undercollateralized");
-            require(calcBorrowedInterest(account));
-
+            require(calcBorrowedInterest(msg.sender), "Could not calculate interest on debt");
+            require(getCollateralRatio(hakToken, account) < 15000, "account is not undercollateralized");
+            uint256 amountToPay = DSMath.add(ETHBorrowed[account].deposit, ETHBorrowed[account].interest);
+            require(msg.value >= amountToPay, "Not enough ETH to pay the loan");
             // repay the loan
-            deposit(ethToken, DSMath.add(ETHBorrowed[account].deposit, ETHBorrowed[account].interest));
+            repayHelper(token, account, msg.sender, amountToPay);
+            
+            if(amountToPay < msg.value) {
+                (bool sent, bytes memory data) = msg.sender.call{value: msg.value - amountToPay}("");
+                require(sent, "Failed to send Ether");
+            }
+            
+            emit Liquidate(msg.sender, account, hakToken, HAKBankAccount[account].deposit, msg.value - amountToPay);
+        }
+        
+    function repayHelper(address token, address borrower, address repayer, uint256 amount)
+        private
+        returns (bool) {
+            require(token == ethToken, "Must repay in ETH");
+            //require(ERC20(ethToken).approve(address(this), amount), "Bank not allowed to transfer funds");
+            //require(ERC20(ethToken).transferFrom(repayer, address(this), amount), "Bank not allowed to transfer funds");
+            
+            if(amount <= ETHBorrowed[borrower].interest){
+                ETHBorrowed[borrower].interest = DSMath.sub(ETHBorrowed[borrower].interest, amount);
+            } else {
+                uint256 remainingAmount = amount - ETHBorrowed[borrower].interest;
+                ETHBorrowed[borrower].interest = 0;
+                ETHBorrowed[borrower].deposit = DSMath.sub(ETHBorrowed[borrower].deposit, remainingAmount);
+            }
+            
+            emit Repay(repayer, token, ETHBorrowed[borrower].deposit + ETHBorrowed[borrower].interest);
         }
 
     // TODO implement: wenn sich der Preis von HAK token ändert => jeden Block die Ratio checken und ggf. liquidieren
@@ -138,13 +180,13 @@ contract Bank is IBank {
         override
         returns (uint256) {
             require(token == hakToken, "wrong input token");
-            if (borrow[account] == 0) {
+            if (ETHBorrowed[account].deposit == 0) {
                 return type(uint256).max;
             }
-            calcBorrowedInterest(account);
-            uint256 deposited = DSMath.add(HAKBankAccount[account].deposit, HAKBankAccount[account].interest);
-            uint256 borrowed = DSMath.add(ETHBorrowed[account].deposit, ETHBorrowed[account].interest);
-            return (deposited * 10000 / borrowed);
+            uint256 deposited = DSMath.wmul(IPriceOracle(priceOracle).getVirtualPrice(hakToken), DSMath.add(HAKBankAccount[account].deposit, HAKBankAccount[account].interest));
+            uint256 owedInterest = calculateInterest(5, ETHBorrowed[account].lastInterestBlock, ETHBorrowed[account].interest);
+            uint256 borrowed = DSMath.add(ETHBorrowed[account].deposit, DSMath.add(ETHBorrowed[account].interest, owedInterest));
+            return DSMath.wdiv(DSMath.mul(deposited, 10000), borrowed);
         }
 
     function calcBorrowedInterest(address account)
