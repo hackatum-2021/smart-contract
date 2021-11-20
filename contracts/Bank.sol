@@ -106,7 +106,7 @@ contract Bank is IBank {
             if(amount==0){
                 // calculate maximum amount
                 uint256 totalHakTokens = DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest);
-                uint256 max_amount = DSMath.wmul(IPriceOracle(priceOracle).getVirtualPrice(hakToken), DSMath.wdiv(DSMath.mul(totalHakTokens, 10000), 15000));
+                uint256 max_amount = DSMath.wmul(IPriceOracle(priceOracle).getVirtualPrice(hakToken), DSMath.mul(totalHakTokens, 10000) / 15000);
                 amount = DSMath.sub(DSMath.sub(max_amount, ETHBorrowed[msg.sender].deposit), ETHBorrowed[msg.sender].interest);
                 //uint256 max_amount = DSMath.sub(DSMath.sub(DSMath.wdiv(DSMath.mul(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) , 10000), 15000), borrowed[msg.sender]), owedInterest[msg.sender]);
                 
@@ -127,7 +127,7 @@ contract Bank is IBank {
             (bool sent, bytes memory data) = msg.sender.call{value: amount}("");
             require(sent, "Failed to send Ether");
             
-            uint256 new_coll_ratio = getCollateralRatio(token, msg.sender);
+            uint256 new_coll_ratio = getCollateralRatio(hakToken, msg.sender);
             emit Borrow(msg.sender, token, amount, new_coll_ratio);
                         
             return new_coll_ratio;
