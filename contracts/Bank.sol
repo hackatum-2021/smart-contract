@@ -6,6 +6,7 @@ import "./interfaces/IPriceOracle.sol";
 import "./libraries/Math.sol";
 import "@openzeppelin/contracts@3.4.2-solc-0.7/token/ERC20/ERC20.sol";
 
+
 contract Bank is IBank {
     address internal constant ethToken = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     
@@ -122,13 +123,38 @@ contract Bank is IBank {
         payable
         external
         override
-        returns (bool) {}
+        returns (bool) {
+            require(getCollateralRatio(hakToken, account) >= 15000, "account is not undercollateralized");
+            require(calcBorrowedInterest(account));
 
+            // repay the loan
+            deposit(ethToken, DSMath.add(ETHBorrowed[account].deposit, ETHBorrowed[account].interest));
+        }
+
+    // TODO implement: wenn sich der Preis von HAK token ändert => jeden Block die Ratio checken und ggf. liquidieren
     function getCollateralRatio(address token, address account)
         view
         public
         override
-        returns (uint256) {}
+        returns (uint256) {
+            require(token == hakToken, "wrong input token");
+            if (borrow[account] == 0) {
+                return type(uint256).max;
+            }
+            calcBorrowedInterest(account);
+            uint256 deposited = DSMath.add(HAKBankAccount[account].deposit, HAKBankAccount[account].interest);
+            uint256 borrowed = DSMath.add(ETHBorrowed[account].deposit, ETHBorrowed[account].interest);
+            return (deposited * 10000 / borrowed);
+        }
+
+    function calcBorrowedInterest(address account)
+        private 
+        returns (bool) {
+            uint256 owedInterest = calculateInterest(5, ETHBorrowed[account].lastInterestBlock, ETHBorrowed[account].interest);
+            ETHBorrowed[account].interest = DSMath.add(ETHBorrowed[account].interest, owedInterest);
+            ETHBorrowed[account].lastInterestBlock = block.number;
+            return true;
+        }
 
     function getBalance(address token)
         view
