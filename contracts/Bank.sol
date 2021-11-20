@@ -39,7 +39,7 @@ contract Bank is IBank {
                 HAKBankAccount[msg.sender].deposit = DSMath.add(HAKBankAccount[msg.sender].deposit, amount);
                 HAKBankAccount[msg.sender].lastInterestBlock = block.number;
             } else {
-                require(false, "Token not recognized");
+                require(false, "token not supported");
             }
             emit Deposit(msg.sender, token, amount);
             return true;
@@ -53,7 +53,12 @@ contract Bank is IBank {
             if(token == ethToken){
                 require(address(this).balance >= amount, "Bank doesn't have enough funds");
                 ETHBankAccount[msg.sender].interest = DSMath.add(ETHBankAccount[msg.sender].interest, calculateDepositInterest(token));
-                require(DSMath.add(ETHBankAccount[msg.sender].deposit, ETHBankAccount[msg.sender].interest) >= amount, "Not enough funds in account");
+                require(DSMath.add(ETHBankAccount[msg.sender].deposit, ETHBankAccount[msg.sender].interest) > 0, "no balance");
+                require(DSMath.add(ETHBankAccount[msg.sender].deposit, ETHBankAccount[msg.sender].interest) >= amount, "amount exceeds balance");
+                
+                if(amount == 0) {
+                    amount = ETHBankAccount[msg.sender].deposit + ETHBankAccount[msg.sender].interest;
+                }
                 if(ETHBankAccount[msg.sender].interest >= amount){
                     ETHBankAccount[msg.sender].interest = DSMath.sub(ETHBankAccount[msg.sender].interest, amount);
                 } else {
@@ -69,7 +74,12 @@ contract Bank is IBank {
             } else if (token == hakToken) {
                 require(ERC20(hakToken).balanceOf(address(this)) >= amount, "Bank doesn't have enough funds");
                 HAKBankAccount[msg.sender].interest = DSMath.add(HAKBankAccount[msg.sender].interest, calculateDepositInterest(token));
-                require(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) >= amount, "Not enough funds in account");
+                require(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) > 0, "no balance");
+                require(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) >= amount, "amount exceeds balance");
+                
+                if(amount == 0) {
+                    amount = HAKBankAccount[msg.sender].deposit + HAKBankAccount[msg.sender].interest;
+                }
                 if(HAKBankAccount[msg.sender].interest >= amount){
                     HAKBankAccount[msg.sender].interest = DSMath.sub(HAKBankAccount[msg.sender].interest, amount);
                 } else {
@@ -81,7 +91,7 @@ contract Bank is IBank {
                 ERC20(hakToken).transfer(msg.sender, amount);
                 HAKBankAccount[msg.sender].lastInterestBlock = block.number;
             } else {
-                require(false, "Token not recognized");
+                require(false, "token not supported");
             }
             emit Withdraw(msg.sender, token, amount);
         }
@@ -90,8 +100,9 @@ contract Bank is IBank {
         external
         override
         returns (uint256) {
-            require(token == ethToken, "You can only borrow ETH");
+            require(token == ethToken, "token not supported");
             require(calcBorrowedInterest(msg.sender), "Could not calculate interest on debt");
+            require(HAKBankAccount[msg.sender].deposit + HAKBankAccount[msg.sender].deposit > 0, "no collateral deposited");
             if(amount==0){
                 // calculate maximum amount
                 uint256 totalHakTokens = DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest);
@@ -106,7 +117,7 @@ contract Bank is IBank {
                 uint256 totalHakTokens = DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest);
                 uint256 totalBorrowed = DSMath.add(ETHBorrowed[msg.sender].deposit, DSMath.add(ETHBorrowed[msg.sender].interest, amount));
                 uint256 tentative_coll_ratio = DSMath.wdiv(DSMath.wmul(IPriceOracle(priceOracle).getVirtualPrice(hakToken), DSMath.mul(totalHakTokens, 10000)), totalBorrowed);
-                require(tentative_coll_ratio >= 15000, "you don't have enough deposit");
+                require(tentative_coll_ratio >= 15000, "borrow would exceed collateral ratio");
                 
                 // update borrowed amount
                 ETHBorrowed[msg.sender].deposit = DSMath.add(ETHBorrowed[msg.sender].deposit, amount);
@@ -127,10 +138,11 @@ contract Bank is IBank {
         external
         override
         returns (uint256) {
+            require(ETHBorrowed[msg.sender].deposit + ETHBorrowed[msg.sender].interest > 0, "nothing to repay");
             require(calcBorrowedInterest(msg.sender), "Could not calculate interest on debt");
             //TODO: maybe this is not required, case in which we need to send overpayments back
             require(ETHBorrowed[msg.sender].deposit + ETHBorrowed[msg.sender].interest >= msg.value);
-            require(amount == msg.value);
+            require(amount <= msg.value, "msg.value < amount to repay");
             
             repayHelper(token, msg.sender, msg.sender, amount);
         }
@@ -141,9 +153,10 @@ contract Bank is IBank {
         override
         returns (bool) {
             require(calcBorrowedInterest(msg.sender), "Could not calculate interest on debt");
-            require(getCollateralRatio(hakToken, account) < 15000, "account is not undercollateralized");
+            require(getCollateralRatio(hakToken, account) < 15000, "healty position");
             uint256 amountToPay = DSMath.add(ETHBorrowed[account].deposit, ETHBorrowed[account].interest);
-            require(msg.value >= amountToPay, "Not enough ETH to pay the loan");
+            require(msg.value >= amountToPay, "insufficient ETH sent by liquidator");
+            require(account != msg.sender, "cannot liquidate own position");
             // repay the loan
             repayHelper(token, account, msg.sender, amountToPay);
             
@@ -158,7 +171,7 @@ contract Bank is IBank {
     function repayHelper(address token, address borrower, address repayer, uint256 amount)
         private
         returns (bool) {
-            require(token == ethToken, "Must repay in ETH");
+            require(token == ethToken, "token not supported");
             //require(ERC20(ethToken).approve(address(this), amount), "Bank not allowed to transfer funds");
             //require(ERC20(ethToken).transferFrom(repayer, address(this), amount), "Bank not allowed to transfer funds");
             
