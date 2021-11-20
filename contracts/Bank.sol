@@ -37,6 +37,8 @@ contract Bank is IBank {
                 HAKBankAccount[msg.sender].interest = DSMath.add(HAKBankAccount[msg.sender].interest, calculateDepositInterest(token));
                 HAKBankAccount[msg.sender].deposit = DSMath.add(HAKBankAccount[msg.sender].deposit, amount);
                 HAKBankAccount[msg.sender].lastInterestBlock = block.number;
+            } else {
+                require(false, "Token not recognized");
             }
             emit Deposit(msg.sender, token, amount);
             return true;
@@ -48,7 +50,7 @@ contract Bank is IBank {
         returns (uint256) {
             require(amount >= 0, "Too small amount!");
             if(token == ethToken){
-                require(address(this).balance >= amount);
+                require(address(this).balance >= amount, "Bank doesn't have enough funds");
                 ETHBankAccount[msg.sender].interest = DSMath.add(ETHBankAccount[msg.sender].interest, calculateDepositInterest(token));
                 require(DSMath.add(ETHBankAccount[msg.sender].deposit, ETHBankAccount[msg.sender].interest) >= amount, "Not enough funds in account");
                 if(ETHBankAccount[msg.sender].interest >= amount){
@@ -61,9 +63,10 @@ contract Bank is IBank {
                 }
                 (bool sent, bytes memory data) = msg.sender.call{value: amount}("");
                 require(sent, "Failed to send Ether");
+                ETHBankAccount[msg.sender].lastInterestBlock = block.number;
                 
             } else if (token == hakToken) {
-                require(ERC20(hakToken).balanceOf(address(this)) >= amount);
+                require(ERC20(hakToken).balanceOf(address(this)) >= amount, "Bank doesn't have enough funds");
                 HAKBankAccount[msg.sender].interest = DSMath.add(HAKBankAccount[msg.sender].interest, calculateDepositInterest(token));
                 require(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) >= amount, "Not enough funds in account");
                 if(HAKBankAccount[msg.sender].interest >= amount){
@@ -74,7 +77,10 @@ contract Bank is IBank {
                     HAKBankAccount[msg.sender].interest = 0;
                     HAKBankAccount[msg.sender].deposit = DSMath.sub(HAKBankAccount[msg.sender].deposit, tempAmount);
                 }
-                require(ERC20(hakToken).transferFrom(address(this), msg.sender, amount));
+                ERC20(hakToken).transfer(msg.sender, amount);
+                HAKBankAccount[msg.sender].lastInterestBlock = block.number;
+            } else {
+                require(false, "Token not recognized");
             }
             emit Withdraw(msg.sender, token, amount);
         }
