@@ -4,7 +4,7 @@ pragma solidity 0.7.0;
 import "./interfaces/IBank.sol";
 import "./interfaces/IPriceOracle.sol";
 import "./libraries/Math.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v3.1.0-solc-0.7/contracts//token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts@3.4.2-solc-0.7/token/ERC20/ERC20.sol";
 
 contract Bank is IBank {
     address internal constant ethToken = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
@@ -88,7 +88,29 @@ contract Bank is IBank {
     function borrow(address token, uint256 amount)
         external
         override
-        returns (uint256) {}
+        returns (uint256) {
+            require(token == ethToken, "You can only borrow ETH");
+            if(amount==0){
+                // calculate maximum amount
+                uint256 max_amount = (HAKBankAccount[msg.sender].deposit + HAKBankAccount[msg.sender].interest)*10000 / 15000 - borrowed[msg.sender] - owedInterest[msg.sender];
+                //uint256 max_amount = DSMath.sub(DSMath.sub(DSMath.wdiv(DSMath.mul(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) , 10000), 15000), borrowed[msg.sender]), owedInterest[msg.sender]);
+                
+                // update borrowed amount
+                borrowed[msg.sender] = DSMath.add(borrowed[msg.sender], max_amount);
+            } else {
+                // calculate new collateral ratio
+                uint256 tentative_coll_ratio = (HAKBankAccount[msg.sender].deposit + HAKBankAccount[msg.sender].interest)*10000 / (borrowed[msg.sender] + owedInterest[msg.sender] + amount);
+                require(tentative_coll_ratio >= 15000, "you don't have enough deposit");
+                
+                // update borrowed amount
+                borrowed[msg.sender] = DSMath.add(borrowed[msg.sender], amount);
+            }
+            
+            uint256 new_coll_ratio = getCollateralRatio(token, msg.sender);
+            emit Borrow(msg.sender, token, amount, new_coll_ratio);
+                        
+            return new_coll_ratio;
+        }
 
     function repay(address token, uint256 amount)
         payable
