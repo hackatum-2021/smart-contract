@@ -234,6 +234,8 @@ contract Bank is IBank {
     }
     
     function calculateInterest(uint256 interestRate, uint256 lastInterestBlock, uint256 amount) view private returns (uint256) {
-        return DSMath.wdiv(DSMath.wmul(DSMath.mul(interestRate, DSMath.sub(block.number, lastInterestBlock)), amount), 10000);
+        uint256 nrOfBlocksElapsed = DSMath.sub(block.number, lastInterestBlock);
+        
+        return DSMath.mul(DSMath.mul(interestRate, nrOfBlocksElapsed), amount) / 10000;
     }
 }
