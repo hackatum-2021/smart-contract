@@ -33,7 +33,7 @@ contract Bank is IBank {
                 ETHBankAccount[msg.sender].deposit = DSMath.add(ETHBankAccount[msg.sender].deposit, amount);
                 ETHBankAccount[msg.sender].lastInterestBlock = block.number;
             } else if(token == hakToken) {
-                require(ERC20(hakToken).transferFrom(msg.sender, address(this), amount), "Bank not allowed to transfer funds");
+                require(IERC20(hakToken).transferFrom(msg.sender, address(this), amount), "Bank not allowed to transfer funds");
                 HAKBankAccount[msg.sender].interest = DSMath.add(HAKBankAccount[msg.sender].interest, calculateDepositInterest(token));
                 HAKBankAccount[msg.sender].deposit = DSMath.add(HAKBankAccount[msg.sender].deposit, amount);
                 HAKBankAccount[msg.sender].lastInterestBlock = block.number;
@@ -71,7 +71,7 @@ contract Bank is IBank {
                 ETHBankAccount[msg.sender].lastInterestBlock = block.number;
                 
             } else if (token == hakToken) {
-                require(ERC20(hakToken).balanceOf(address(this)) >= amount, "Bank doesn't have enough funds");
+                require(IERC20(hakToken).balanceOf(address(this)) >= amount, "Bank doesn't have enough funds");
                 HAKBankAccount[msg.sender].interest = DSMath.add(HAKBankAccount[msg.sender].interest, calculateDepositInterest(token));
                 require(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) > 0, "no balance");
                 require(DSMath.add(HAKBankAccount[msg.sender].deposit, HAKBankAccount[msg.sender].interest) >= amount, "amount exceeds balance");
@@ -87,7 +87,7 @@ contract Bank is IBank {
                     HAKBankAccount[msg.sender].interest = 0;
                     HAKBankAccount[msg.sender].deposit = DSMath.sub(HAKBankAccount[msg.sender].deposit, tempAmount);
                 }
-                ERC20(hakToken).transfer(msg.sender, amount);
+                IERC20(hakToken).transfer(msg.sender, amount);
                 HAKBankAccount[msg.sender].lastInterestBlock = block.number;
             } else {
                 require(false, "token not supported");
